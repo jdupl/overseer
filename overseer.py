@@ -21,6 +21,26 @@ def get_files(path, extension):
 def help():
     print('overseer.py -s <source> -d <destination>')
 
+def get_track_filename(tags):
+    track_number = ' '
+    if not tags.title:
+        return None
+    if tags.track:
+        track_file = "{0:02d}".format(int(tags.track)) + ' - ' + tags.title
+    else:
+        track_file = tags.title
+    return track_file + '.opus'
+
+def get_track_relative_path(tags):
+    track_relative_path = None
+
+    track_filename = get_track_filename(tags)
+    album_name = tags.album
+
+    if track_filename and album_name:
+        track_relative_path = tags.album + '/' + track_filename
+
+    return track_relative_path
 
 def main(argv):
     source = None
@@ -53,12 +73,13 @@ def main(argv):
             to_encode.append(file)
 
     for file in to_encode:
-        tags = TinyTag.get(file)
-        album_name = tags.album
-        # TODO pad with 0 for 2 length
-        track_file = tags.track + ' - ' + tags.title
-        track_relative_path = tags.album + '/' + track_name
-        track_absolute_path = output + '/' + track_relative_path
+        track_relative_path = get_track_relative_path(TinyTag.get(file))
+
+        if track_relative_path:
+            track_absolute_path = destination + '/' + track_relative_path
+            print(track_absolute_path)
+        else:
+            print('Ignoring ' + file)
 
 
 if __name__ == "__main__":
