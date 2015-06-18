@@ -93,10 +93,12 @@ def main(argv):
         track_absolute_path = destination + '/' + track_relative_path
 
         if track_relative_path and not os.path.exists(track_absolute_path):
+            tags_dict = dict((k, v)
+                    for k, v in tags.__dict__.items() if not k.startswith('_'))
             to_encode.append({
                 'source': source_file,
                 'destination': track_absolute_path,
-                'tags': tags
+                'tags': tags_dict
             })
         else:
             print('Ignoring ' + source_file)
