@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 import sys, getopt, os, argparse
 import multiprocessing as mp
 
