@@ -1,6 +1,7 @@
 import sys, getopt, os
 
 import subprocess
+from subprocess import Popen, PIPE
 from tinytag import TinyTag
 import multiprocessing as mp
 
@@ -45,9 +46,11 @@ def get_track_relative_path(tags):
 
     return track_relative_path
 
-def encode(encode):
-    subprocess.check_call(['flac', '-scd', encode['source'], '|', 'opusenc',
-        '--bitrate', '64', '-', encode['destination']])
+def encode(to_encode):
+    flac_wav = Popen(['flac', '-scd', to_encode['source']], stdout=PIPE)
+    opus_enc = Popen(['opusenc', '--bitrate', '64', '-',
+        to_encode['destination']], stdin=flac_wav.stdout)
+    opus_enc.wait()
 
 def safe_run(*args, **kwargs):
     try:
