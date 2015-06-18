@@ -1,5 +1,8 @@
 import sys, getopt, os
+
+import subprocess
 from tinytag import TinyTag
+import multiprocessing as mp
 
 def is_new_file(file, old_files):
     # TODO handle relative paths
@@ -42,6 +45,16 @@ def get_track_relative_path(tags):
 
     return track_relative_path
 
+def encode(encode):
+    subprocess.check_call(['flac', '-scd', encode['source'], '|', 'opusenc',
+        '--bitrate', '64', '-', encode['destination']])
+
+def safe_run(*args, **kwargs):
+    try:
+        encode(*args, **kwargs)
+    except Exception as e:
+        print("error: %s encode(*%r, **%r)" % (e, args, kwargs))
+
 def main(argv):
     source = None
     destination = None
@@ -64,22 +77,40 @@ def main(argv):
         sys.exit(1)
 
     to_encode = []
+    new_files = []
     old_files = get_old_files()
+
     output_files = get_files(destination, 'opus')
-    source_files = get_files(source, 'flac')
+    current_source_files = get_files(source, 'flac')
 
-    for file in source_files:
+    for file in current_source_files:
         if is_new_file(file, old_files):
-            to_encode.append(file)
+            new_files.append(file)
 
-    for file in to_encode:
-        track_relative_path = get_track_relative_path(TinyTag.get(file))
+    for source_file in new_files:
+        tags = TinyTag.get(source_file)
+        track_relative_path = get_track_relative_path(tags)
+        track_absolute_path = destination + '/' + track_relative_path
 
-        if track_relative_path:
-            track_absolute_path = destination + '/' + track_relative_path
-            print(track_absolute_path)
+        if track_relative_path and not os.path.exists(track_absolute_path):
+            to_encode.append({
+                'source': source_file,
+                'destination': track_absolute_path,
+                'tags': tags
+            })
         else:
-            print('Ignoring ' + file)
+            print('Ignoring ' + source_file)
+
+    print('preparing encodings')
+    for encode in to_encode:
+        dir_name = os.path.dirname(encode['destination'])
+
+        if not os.path.isdir(dir_name):
+            os.makedirs(dir_name)
+
+    print('encoding files')
+    pool = mp.Pool()
+    pool.map(safe_run, to_encode)
 
 
 if __name__ == "__main__":
