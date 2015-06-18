@@ -11,7 +11,7 @@ Python 3.x is required.
 
 The TinyTag library is required.
 
-### Archlinux
+### Archlinux / Gentoo
 
 `pip install tinytag`
 
