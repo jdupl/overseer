@@ -1,9 +1,8 @@
-import sys, getopt, os
+import sys, getopt, os, argparse
+import multiprocessing as mp
 
-import subprocess
 from subprocess import Popen, PIPE
 from tinytag import TinyTag
-import multiprocessing as mp
 
 def is_new_file(file, old_files):
     # TODO handle relative paths
@@ -22,11 +21,7 @@ def get_files(path, extension):
                  path_files.append(root + '/' + file)
     return path_files
 
-def help():
-    print('overseer.py -s <source> -d <destination>')
-
 def get_track_filename(tags):
-    track_number = ' '
     if not tags.title:
         return None
     if tags.track:
@@ -47,8 +42,9 @@ def get_track_relative_path(tags):
     return track_relative_path
 
 def encode(to_encode):
+    bitrate = str(to_encode['bitrate'])
     flac_wav = Popen(['flac', '-scd', to_encode['source']], stdout=PIPE)
-    opus_enc = Popen(['opusenc', '--bitrate', '64', '-',
+    opus_enc = Popen(['opusenc', '--quiet', '--bitrate', bitrate, '-',
         to_encode['destination']], stdin=flac_wav.stdout)
     opus_enc.wait()
 
@@ -58,33 +54,9 @@ def safe_run(*args, **kwargs):
     except Exception as e:
         print("error: %s encode(*%r, **%r)" % (e, args, kwargs))
 
-def main(argv):
-    source = None
-    destination = None
-    try:
-        opts, args = getopt.getopt(argv, "hs:d:",["source=","destination="])
-    except getopt.GetoptError:
-        help()
-        sys.exit(1)
-    for opt, arg in opts:
-        if opt == '-h':
-            help()
-            sys.exit(0)
-        elif opt in ("-s", "--source"):
-            source = arg
-        elif opt in ("-d", "--destination"):
-            destination = arg
-
-    if not destination or not source:
-        help()
-        sys.exit(1)
-
-    to_encode = []
+def get_files_to_encode(current_source_files, old_files, destination, bitrate):
     new_files = []
-    old_files = get_old_files()
-
-    output_files = get_files(destination, 'opus')
-    current_source_files = get_files(source, 'flac')
+    to_encode = []
 
     for file in current_source_files:
         if is_new_file(file, old_files):
@@ -101,22 +73,51 @@ def main(argv):
             to_encode.append({
                 'source': source_file,
                 'destination': track_absolute_path,
-                'tags': tags_dict
+                'tags': tags_dict,
+                'bitrate': bitrate
             })
         else:
             print('Ignoring ' + source_file)
+    return to_encode
 
-    print('preparing encodings')
+def prepare_folders(to_encode):
     for encode in to_encode:
         dir_name = os.path.dirname(encode['destination'])
 
         if not os.path.isdir(dir_name):
             os.makedirs(dir_name)
 
-    print('encoding files')
-    pool = mp.Pool()
+def main(argv):
+    description = 'Syncs a flac library to an opus copy'
+    info_text = 'Depends on opusenc, flac'
+    parser = argparse.ArgumentParser(description=description, epilog=info_text)
+    parser.add_argument('source', help='the source of the flac files')
+    parser.add_argument('destination', help='the destination of the opus files')
+    parser.add_argument('--threads', '-t', type=int,
+        help='the number of threads to use')
+    parser.add_argument('--bitrate', '-b', type=int, default=64,
+        help='the opus bitrate to use in kbps (default: 64kbps)')
+
+    args = parser.parse_args()
+    source = args.source
+    destination = args.destination
+    bitrate = args.bitrate
+    threads = args.threads
+
+    print('comparing source and destination')
+    old_files = get_old_files()
+    output_files = get_files(destination, 'opus')
+    current_source_files = get_files(source, 'flac')
+
+    print('preparing to encode')
+    to_encode = get_files_to_encode(current_source_files, old_files,
+        destination, bitrate)
+    prepare_folders(to_encode)
+
+    print('encoding {} files'.format(len(to_encode)))
+    pool = mp.Pool(threads)
     pool.map(safe_run, to_encode)
 
 
 if __name__ == "__main__":
-   main(sys.argv[1:])
+   main(sys.argv)
