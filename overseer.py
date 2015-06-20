@@ -44,10 +44,18 @@ def get_track_relative_path(tags):
 
 def encode(to_encode):
     bitrate = str(to_encode['bitrate'])
+    tags = to_encode['tags']
+
     flac_wav = Popen(['flac', '-scd', to_encode['source']], stdout=PIPE)
     opus_enc = Popen(['opusenc', '--quiet', '--bitrate', bitrate, '-',
         to_encode['destination']], stdin=flac_wav.stdout)
     opus_enc.wait()
+
+    # TODO set genre
+    tagging = Popen(['id3v2', '-a', tags['artist'], '-t', tags['title'], '-y',
+        tags['year'], '-T', tags['track'], to_encode['destination']])
+    tagging.wait()
+
 
 def safe_run(*args, **kwargs):
     try:
