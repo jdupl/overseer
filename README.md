@@ -7,17 +7,21 @@ Tested on Linux only.
 ## Installation
 The file `overseer.py` can be downloaded [here](https://github.com/jdupl/overseer/blob/master/overseer.py).
 
-Python 3.x is required.
+### Requirements
 
-The TinyTag library is required.
+* Python 3.x
+* opusenc
+* id3v2
+* flac
+* TinyTag python library
 
-### Archlinux / Gentoo
+#### Archlinux
 
-`pip install tinytag`
+`sudo pacman -S flac opusenc id3v2 python-pip && sudo pip install tinytag`
 
-### Other Linux
+#### Debian/Ubuntu
 
-`pip3 install tinytag`
+`sudo apt-get install flac opusenc id3v2 python3-pip && sudo pip3 install tinytag`
 
 ## Usage
 
