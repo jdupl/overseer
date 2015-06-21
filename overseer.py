@@ -1,9 +1,27 @@
 #!/usr/bin/python3
-import sys, getopt, os, argparse
+import os
+import os.path
+import re
+import sys
+import subprocess
+import argparse
+import fnmatch
 import multiprocessing as mp
 
-from subprocess import Popen, PIPE
 from tinytag import TinyTag
+from subprocess import Popen, PIPE
+from pyinotify import WatchManager,IN_CLOSE_WRITE, ProcessEvent, Notifier
+
+class Process(ProcessEvent):
+    def __init__(self):
+        self.regex = re.compile('.*\.(?i)flac$')
+
+    def process_IN_CLOSE_WRITE(self, event):
+        target = os.path.join(event.path, event.name)
+        if self.regex.match(target):
+            print(event.path + '/' + event.name)
+            # TODO add to new list
+
 
 def is_new_file(file, old_files):
     # TODO handle relative paths
@@ -74,17 +92,19 @@ def get_files_to_encode(current_source_files, old_files, destination, bitrate):
     for source_file in new_files:
         tags = TinyTag.get(source_file)
         track_relative_path = get_track_relative_path(tags)
-        track_absolute_path = destination + '/' + track_relative_path
 
-        if track_relative_path and not os.path.exists(track_absolute_path):
-            tags_dict = dict((k, v)
-                    for k, v in tags.__dict__.items() if not k.startswith('_'))
-            to_encode.append({
-                'source': source_file,
-                'destination': track_absolute_path,
-                'tags': tags_dict,
-                'bitrate': bitrate
-            })
+        if track_relative_path:
+            track_absolute_path = destination + '/' + track_relative_path
+            if not os.path.exists(track_absolute_path):
+                tags_dict = dict((k, v)
+                        for k, v in tags.__dict__.items()
+                            if not k.startswith('_'))
+                to_encode.append({
+                    'source': source_file,
+                    'destination': track_absolute_path,
+                    'tags': tags_dict,
+                    'bitrate': bitrate
+                })
         else:
             print('Ignoring ' + source_file)
     return to_encode
@@ -125,7 +145,21 @@ def main(argv):
 
     print('encoding {} files'.format(len(to_encode)))
     pool = mp.Pool(threads)
-    pool.map(safe_run, to_encode)
+    # start encoding (async)
+    pool.map_async(safe_run, to_encode)
+
+    # start watching files
+    wm = WatchManager()
+    process = Process()
+    notifier = Notifier(wm, process)
+    wm.add_watch(source, IN_CLOSE_WRITE, rec=True)
+    try:
+        while True:
+            notifier.process_events()
+            if notifier.check_events():
+                notifier.read_events()
+    except KeyboardInterrupt:
+        notifier.stop()
 
 
 if __name__ == "__main__":
