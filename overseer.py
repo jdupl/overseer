@@ -3,24 +3,27 @@ import os
 import os.path
 import re
 import sys
+import threading
 import subprocess
 import argparse
 import fnmatch
 import multiprocessing as mp
 
+from time import sleep
 from tinytag import TinyTag
 from subprocess import Popen, PIPE
 from pyinotify import WatchManager,IN_CLOSE_WRITE, ProcessEvent, Notifier
 
 class Process(ProcessEvent):
-    def __init__(self):
+    def __init__(self, new_files):
         self.regex = re.compile('.*\.(?i)flac$')
+        self.new_files = new_files
 
     def process_IN_CLOSE_WRITE(self, event):
         target = os.path.join(event.path, event.name)
         if self.regex.match(target):
             print(event.path + '/' + event.name)
-            # TODO add to new list
+            self.new_files.append(event.path + '/' + event.name)
 
 
 def is_new_file(file, old_files):
@@ -102,6 +105,7 @@ def get_files_to_encode(current_source_files, old_files, destination, bitrate):
                 to_encode.append({
                     'source': source_file,
                     'destination': track_absolute_path,
+                    'destination_rel': track_relative_path,
                     'tags': tags_dict,
                     'bitrate': bitrate
                 })
@@ -115,6 +119,24 @@ def prepare_folders(to_encode):
 
         if not os.path.isdir(dir_name):
             os.makedirs(dir_name)
+
+def handle_new_files(new_files):
+    print(new_files)
+
+def start_watcher(source, new_files):
+    # start watching files
+    wm = WatchManager()
+    process = Process(new_files)
+    notifier = Notifier(wm, process)
+    wm.add_watch(source, IN_CLOSE_WRITE, rec=True)
+    try:
+        while True:
+            notifier.process_events()
+            if notifier.check_events():
+                notifier.read_events()
+    except KeyboardInterrupt:
+        notifier.stop()
+
 
 def main(argv):
     description = 'Syncs a flac library to an opus copy'
@@ -132,9 +154,16 @@ def main(argv):
     destination = args.destination
     bitrate = args.bitrate
     threads = args.threads
+    new_files = []
+
+    t = threading.Thread(target=start_watcher,args=(source, new_files))
+    t.daemon = True
+    t.start()
 
     print('comparing source and destination')
     old_files = get_old_files()
+
+    # Feel free to implement more
     output_files = get_files(destination, 'opus')
     current_source_files = get_files(source, 'flac')
 
@@ -144,23 +173,12 @@ def main(argv):
     prepare_folders(to_encode)
 
     print('encoding {} files'.format(len(to_encode)))
+    new_files = []
+
     pool = mp.Pool(threads)
-    # start encoding (async)
-    pool.map_async(safe_run, to_encode)
-
-    # start watching files
-    wm = WatchManager()
-    process = Process()
-    notifier = Notifier(wm, process)
-    wm.add_watch(source, IN_CLOSE_WRITE, rec=True)
-    try:
-        while True:
-            notifier.process_events()
-            if notifier.check_events():
-                notifier.read_events()
-    except KeyboardInterrupt:
-        notifier.stop()
-
+    # start encoding
+    pool.map(safe_run, to_encode)
+    sleep(5)
 
 if __name__ == "__main__":
    main(sys.argv)
