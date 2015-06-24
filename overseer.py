@@ -15,15 +15,19 @@ from subprocess import Popen, PIPE
 from pyinotify import WatchManager,IN_CLOSE_WRITE, ProcessEvent, Notifier
 
 class Process(ProcessEvent):
-    def __init__(self, new_files):
+    def __init__(self, queue, destination, bitrate):
         self.regex = re.compile('.*\.(?i)flac$')
-        self.new_files = new_files
+        self.queue = queue
+        self.destination = destination
+        self.bitrate = bitrate
 
     def process_IN_CLOSE_WRITE(self, event):
         target = os.path.join(event.path, event.name)
         if self.regex.match(target):
-            print(event.path + '/' + event.name)
-            self.new_files.append(event.path + '/' + event.name)
+            new_task = get_encode_task(target, self.destination, self.bitrate)
+            if new_task:
+                print('Adding new file {} to task queue.'.format(new_task['source']))
+                self.queue.put(new_task)
 
 
 def is_new_file(file, old_files):
@@ -63,26 +67,29 @@ def get_track_relative_path(tags):
 
     return track_relative_path
 
-def encode(to_encode):
-    bitrate = str(to_encode['bitrate'])
-    tags = to_encode['tags']
+def encode(task):
+    print('Encoding {} at {} kbps.'.format(task['source'], task['bitrate']))
+    bitrate = str(task['bitrate'])
+    tags = task['tags']
 
-    flac_wav = Popen(['flac', '-scd', to_encode['source']], stdout=PIPE)
+    flac_wav = Popen(['flac', '-scd', task['source']], stdout=PIPE)
     opus_enc = Popen(['opusenc', '--quiet', '--bitrate', bitrate, '-',
-        to_encode['destination']], stdin=flac_wav.stdout)
+        task['destination']], stdin=flac_wav.stdout)
     opus_enc.wait()
 
     # TODO set genre
     tagging = Popen(['id3v2', '-a', tags['artist'], '-t', tags['title'], '-y',
-        tags['year'], '-T', tags['track'], to_encode['destination']])
+        tags['year'], '-T', tags['track'], task['destination']])
     tagging.wait()
 
 
-def safe_run(*args, **kwargs):
-    try:
-        encode(*args, **kwargs)
-    except Exception as e:
-        print("error: %s encode(*%r, **%r)" % (e, args, kwargs))
+def safe_run(queue):
+    while True:
+        task = queue.get(True)
+        try:
+            encode(task)
+        except Exception as e:
+            print("error: {} encoding {}".format(e, item))
 
 def get_files_to_encode(current_source_files, old_files, destination, bitrate):
     new_files = []
@@ -93,25 +100,31 @@ def get_files_to_encode(current_source_files, old_files, destination, bitrate):
             new_files.append(file)
 
     for source_file in new_files:
-        tags = TinyTag.get(source_file)
-        track_relative_path = get_track_relative_path(tags)
+        task = get_encode_task(source_file, destination, bitrate)
+        if task:
+            to_encode.append(task)
 
-        if track_relative_path:
-            track_absolute_path = destination + '/' + track_relative_path
-            if not os.path.exists(track_absolute_path):
-                tags_dict = dict((k, v)
-                        for k, v in tags.__dict__.items()
-                            if not k.startswith('_'))
-                to_encode.append({
-                    'source': source_file,
-                    'destination': track_absolute_path,
-                    'destination_rel': track_relative_path,
-                    'tags': tags_dict,
-                    'bitrate': bitrate
-                })
-        else:
-            print('Ignoring ' + source_file)
     return to_encode
+
+def get_encode_task(source_file, destination, bitrate):
+    tags = TinyTag.get(source_file)
+    track_relative_path = get_track_relative_path(tags)
+
+    if track_relative_path:
+        track_absolute_path = os.path.join(destination, track_relative_path)
+        if not os.path.exists(track_absolute_path):
+            tags_dict = dict((k, v)
+                    for k, v in tags.__dict__.items()
+                        if not k.startswith('_'))
+            return {
+                'source': source_file,
+                'destination': track_absolute_path,
+                'destination_rel': track_relative_path,
+                'tags': tags_dict,
+                'bitrate': bitrate
+            }
+    else:
+        print('Ignoring ' + source_file)
 
 def prepare_folders(to_encode):
     for encode in to_encode:
@@ -120,14 +133,11 @@ def prepare_folders(to_encode):
         if not os.path.isdir(dir_name):
             os.makedirs(dir_name)
 
-def handle_new_files(new_files):
-    print(new_files)
-
-def start_watcher(source, new_files):
-    # start watching files
+def start_watcher(source, new_files, destination, bitrate):
     wm = WatchManager()
-    process = Process(new_files)
+    process = Process(new_files, destination, bitrate)
     notifier = Notifier(wm, process)
+    # TODO detect files moving from a dir to another
     wm.add_watch(source, IN_CLOSE_WRITE, rec=True)
     try:
         while True:
@@ -154,9 +164,10 @@ def main(argv):
     destination = args.destination
     bitrate = args.bitrate
     threads = args.threads
-    new_files = []
+    queue = mp.Queue()
 
-    t = threading.Thread(target=start_watcher,args=(source, new_files))
+    # start watching files
+    t = threading.Thread(target=start_watcher,args=(source, queue, destination, bitrate))
     t.daemon = True
     t.start()
 
@@ -173,12 +184,16 @@ def main(argv):
     prepare_folders(to_encode)
 
     print('encoding {} files'.format(len(to_encode)))
-    new_files = []
+    pool = mp.Pool(threads, safe_run,(queue,))
 
-    pool = mp.Pool(threads)
     # start encoding
-    pool.map(safe_run, to_encode)
-    sleep(5)
+    for encode in to_encode:
+        queue.put(encode)
+
+    # wait forever
+    pool.close()
+    pool.join()
+
 
 if __name__ == "__main__":
    main(sys.argv)
