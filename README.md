@@ -1,6 +1,8 @@
 # overseer
 
-syncs a flac library to an opus library
+Syncs a flac library to an opus clone
+* file watcher for instant encoding
+* encodes on multiple threads
 
 Tested on Linux only.
 
@@ -30,3 +32,5 @@ Sync a FLAC library to an opus folder.
 Usage is trivial, please take a look at the help with
 
 `./overseer.py -h`
+
+Run as a background process with screen or tmux. I will implement a forking process with init script when the code is finished.
