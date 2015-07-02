@@ -51,9 +51,11 @@ def get_track_filename(tags):
     if not tags.title:
         return None
     if tags.track:
-        track_file = "{0:02d}".format(int(tags.track)) + ' - ' + tags.title
+        num = int(''.join(i for i in tags.track if i.isdigit()))
+        padded_num = "{0:02d}".format(num)
+        track_file = padded_num + ' - ' + tags.title.strip()
     else:
-        track_file = tags.title
+        track_file = tags.title.strip()
     return track_file + '.opus'
 
 def get_track_relative_path(tags):
@@ -63,7 +65,9 @@ def get_track_relative_path(tags):
     album_name = tags.album
 
     if track_filename and album_name:
-        track_relative_path = tags.album + '/' + track_filename
+        track_relative_path = tags.album.strip().replace('/', '') + \
+            '/' + track_filename.strip().replace('/', '')
+        track_relative_path = track_relative_path
 
     return track_relative_path
 
