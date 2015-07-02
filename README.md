@@ -16,14 +16,17 @@ The file `overseer.py` can be downloaded [here](https://github.com/jdupl/oversee
 * id3v2
 * flac
 * TinyTag python library
+* pyinotify python library
 
 #### Archlinux
 
-`sudo pacman -S flac opusenc id3v2 python-pip && sudo pip install tinytag`
+`sudo pacman -S flac opusenc id3v2 python-pip`
+`sudo pip install tinytag pyinotify`
 
 #### Debian/Ubuntu
 
-`sudo apt-get install flac opusenc id3v2 python3-pip && sudo pip3 install tinytag`
+`sudo apt-get install flac opusenc id3v2 python3-pip`
+`sudo pip3 install tinytag pyinotify`
 
 ## Usage
 
