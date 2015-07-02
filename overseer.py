@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 import os
-import os.path
 import re
 import sys
 import threading
@@ -65,27 +64,38 @@ def get_track_relative_path(tags):
     album_name = tags.album
 
     if track_filename and album_name:
-        track_relative_path = tags.album.strip().replace('/', '') + \
-            '/' + track_filename.strip().replace('/', '')
-        track_relative_path = track_relative_path
+        safe_path = str.maketrans("", "", "/:?<>\\\"")
+        clean_album = tags.album.translate(safe_path)
+        clean_track = track_filename.translate(safe_path)
+        track_relative_path = os.path.join(clean_album, clean_track)
 
     return track_relative_path
+
+def get_meta_tags(source):
+    output = subprocess.check_output(["metaflac", "--export-tags-to=-", source])
+    tags = []
+    for line in output.decode("utf8").split("\n"):
+        tag = line.split("=", 1)
+        if len(tag) == 2:
+            tags.append(tag)
+    return tags
 
 def encode(task):
     print('Encoding {} at {} kbps.'.format(task['source'], task['bitrate']))
     bitrate = str(task['bitrate'])
-    tags = task['tags']
+
+    tags_args = []
+    for tag, val in get_meta_tags(task['source']):
+        tags_args.extend(["--comment", "{}={}".format(tag, val)])
 
     flac_wav = Popen(['flac', '-scd', task['source']], stdout=PIPE)
-    opus_enc = Popen(['opusenc', '--quiet', '--bitrate', bitrate, '-',
-        task['destination']], stdin=flac_wav.stdout)
+
+    opus_enc_args = ['opusenc']
+    opus_enc_args.extend(tags_args)
+    opus_enc_args.extend(['--quiet', '--bitrate', bitrate, '-',
+        task['destination']])
+    opus_enc = Popen(opus_enc_args, stdin=flac_wav.stdout)
     opus_enc.wait()
-
-    # TODO set genre
-    tagging = Popen(['id3v2', '-a', tags['artist'], '-t', tags['title'], '-y',
-        tags['year'], '-T', tags['track'], task['destination']])
-    tagging.wait()
-
 
 def safe_run(queue):
     while True:
@@ -93,7 +103,7 @@ def safe_run(queue):
         try:
             encode(task)
         except Exception as e:
-            print("error: {} encoding {}".format(e, item))
+            print("error: {} encoding {}".format(e, task))
 
 def get_files_to_encode(current_source_files, old_files, destination, bitrate):
     new_files = []
@@ -117,14 +127,10 @@ def get_encode_task(source_file, destination, bitrate):
     if track_relative_path:
         track_absolute_path = os.path.join(destination, track_relative_path)
         if not os.path.exists(track_absolute_path):
-            tags_dict = dict((k, v)
-                    for k, v in tags.__dict__.items()
-                        if not k.startswith('_'))
             return {
                 'source': source_file,
                 'destination': track_absolute_path,
                 'destination_rel': track_relative_path,
-                'tags': tags_dict,
                 'bitrate': bitrate
             }
     else:
@@ -133,8 +139,7 @@ def get_encode_task(source_file, destination, bitrate):
 def prepare_folders(to_encode):
     for encode in to_encode:
         dir_name = os.path.dirname(encode['destination'])
-
-        if not os.path.isdir(dir_name):
+        if not os.path.exists(dir_name):
             os.makedirs(dir_name)
 
 def start_watcher(source, new_files, destination, bitrate):
