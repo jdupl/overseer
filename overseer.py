@@ -11,7 +11,8 @@ import multiprocessing as mp
 from time import sleep
 from tinytag import TinyTag
 from subprocess import Popen, PIPE
-from pyinotify import WatchManager,IN_CLOSE_WRITE, ProcessEvent, Notifier
+from pyinotify import WatchManager, IN_CLOSE_WRITE, ProcessEvent, Notifier
+
 
 class Process(ProcessEvent):
     def __init__(self, queue, destination, bitrate):
@@ -25,7 +26,8 @@ class Process(ProcessEvent):
         if self.regex.match(target):
             new_task = get_encode_task(target, self.destination, self.bitrate)
             if new_task:
-                print('Adding new file {} to task queue.'.format(new_task['source']))
+                print('Adding new file {} to task queue.'
+                      .format(new_task['source']))
                 self.queue.put(new_task)
 
 
@@ -33,18 +35,21 @@ def is_new_file(file, old_files):
     # TODO handle relative paths
     return file not in old_files
 
+
 def get_old_files():
     # TODO get actual files from last run
     return []
+
 
 def get_files(path, extension):
     path_files = []
 
     for root, sub_folders, files in os.walk(path):
-         for file in files:
+        for file in files:
             if not extension or file.endswith('.' + extension):
-                 path_files.append(root + '/' + file)
+                path_files.append(root + '/' + file)
     return path_files
+
 
 def get_track_filename(tags):
     if not tags.title:
@@ -56,6 +61,7 @@ def get_track_filename(tags):
     else:
         track_file = tags.title.strip()
     return track_file + '.opus'
+
 
 def get_track_relative_path(tags):
     track_relative_path = None
@@ -71,6 +77,7 @@ def get_track_relative_path(tags):
 
     return track_relative_path
 
+
 def get_meta_tags(source):
     output = subprocess.check_output(["metaflac", "--export-tags-to=-", source])
     tags = []
@@ -79,6 +86,7 @@ def get_meta_tags(source):
         if len(tag) == 2:
             tags.append(tag)
     return tags
+
 
 def encode(task):
     print('Encoding {} at {} kbps.'.format(task['source'], task['bitrate']))
@@ -93,9 +101,10 @@ def encode(task):
     opus_enc_args = ['opusenc']
     opus_enc_args.extend(tags_args)
     opus_enc_args.extend(['--quiet', '--bitrate', bitrate, '-',
-        task['destination']])
+                         task['destination']])
     opus_enc = Popen(opus_enc_args, stdin=flac_wav.stdout)
     opus_enc.wait()
+
 
 def safe_run(queue):
     while True:
@@ -104,6 +113,7 @@ def safe_run(queue):
             encode(task)
         except Exception as e:
             print("error: {} encoding {}".format(e, task))
+
 
 def get_files_to_encode(current_source_files, old_files, destination, bitrate):
     new_files = []
@@ -119,6 +129,7 @@ def get_files_to_encode(current_source_files, old_files, destination, bitrate):
             to_encode.append(task)
 
     return to_encode
+
 
 def get_encode_task(source_file, destination, bitrate):
     tags = TinyTag.get(source_file)
@@ -136,11 +147,13 @@ def get_encode_task(source_file, destination, bitrate):
     else:
         print('Ignoring ' + source_file)
 
+
 def prepare_folders(to_encode):
     for encode in to_encode:
         dir_name = os.path.dirname(encode['destination'])
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
+
 
 def start_watcher(source, new_files, destination, bitrate):
     wm = WatchManager()
@@ -164,9 +177,10 @@ def main(argv):
     parser.add_argument('source', help='the source of the flac files')
     parser.add_argument('destination', help='the destination of the opus files')
     parser.add_argument('--threads', '-t', type=int,
-        help='the number of threads to use')
+                        help='the number of threads to use')
     parser.add_argument('--bitrate', '-b', type=int, default=64,
-        help='the opus bitrate to use in kbps (default: 64kbps)')
+                        help='\
+    the opus bitrate to use in kbps (default: 64kbps)')
 
     args = parser.parse_args()
     source = args.source
@@ -176,7 +190,8 @@ def main(argv):
     queue = mp.Queue()
 
     # start watching files
-    t = threading.Thread(target=start_watcher,args=(source, queue, destination, bitrate))
+    t = threading.Thread(target=start_watcher, args=(source, queue,
+                                                     destination, bitrate))
     t.daemon = True
     t.start()
 
@@ -189,11 +204,11 @@ def main(argv):
 
     print('preparing to encode')
     to_encode = get_files_to_encode(current_source_files, old_files,
-        destination, bitrate)
+                                    destination, bitrate)
     prepare_folders(to_encode)
 
     print('encoding {} files'.format(len(to_encode)))
-    pool = mp.Pool(threads, safe_run,(queue,))
+    pool = mp.Pool(threads, safe_run, (queue,))
 
     # start encoding
     for encode in to_encode:
@@ -205,4 +220,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-   main(sys.argv)
+    main(sys.argv)
